@@ -12,6 +12,20 @@ source "$(dirname "$0")/lib.sh"
 UPDATE_LOCK=0
 [ "${1:-}" = "--update-lock" ] && UPDATE_LOCK=1
 
+missing=()
+for tool in curl gpg tar xz; do
+  command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+  pkgs="${missing[*]}"
+  pkgs="${pkgs/gpg/gnupg}"
+  case "$(uname -s)" in
+    Darwin) hint="brew install $pkgs" ;;
+    *) hint="sudo apt-get install ${pkgs/xz/xz-utils}  (or your distro's equivalent)" ;;
+  esac
+  die "missing required tools: ${missing[*]}. Install them with: $hint"
+fi
+
 mkdir -p "$SOURCES_DIR"
 touch "$LOCK_FILE"
 

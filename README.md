@@ -69,7 +69,7 @@ Linux builds have no H.264/HEVC encoder. This isn't legal advice.
 
 1. Create the repo in your GitHub org (public, so the source is easy to reach)
    and push these files.
-2. On any Mac or Linux machine with `curl`, `gpg` and `xz`:
+2. On any Mac or Linux machine with `curl`, `gpg` and `xz` (on a Mac: `brew install gnupg xz`):
    ```sh
    ./scripts/fetch-sources.sh --update-lock
    ```

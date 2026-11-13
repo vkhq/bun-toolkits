@@ -1,0 +1,3 @@
+# SHA-256 of every source tarball. Generate with:
+#   ./scripts/fetch-sources.sh --update-lock
+# then review and commit. CI refuses to build sources missing from this file.

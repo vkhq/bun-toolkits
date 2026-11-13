@@ -1,0 +1,135 @@
+name: FFmpeg (LGPL)
+
+# Pull requests build every platform as a check. Pushing a tag named
+# ffmpeg-<version>-<revision> (matching versions.env) also publishes a
+# GitHub Release with the zips, the source bundle and manifest.json.
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    tags: ["ffmpeg-*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sources:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download and verify sources
+        run: ./scripts/fetch-sources.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sources
+          path: sources/
+          retention-days: 7
+
+  build:
+    needs: sources
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: mac-arm64
+            os: macos-26
+            script: build-macos.sh
+          - platform: mac-x64
+            os: macos-26-intel
+            script: build-macos.sh
+          - platform: linux-x64
+            os: ubuntu-22.04 # oldest glibc we target
+            script: build-linux.sh
+          - platform: win-x64
+            os: ubuntu-24.04 # cross-compiled with mingw-w64
+            script: build-windows.sh
+    runs-on: ${{ matrix.os }}
+    env:
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: sources
+          path: sources/
+
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install nasm meson ninja pkgconf automake
+
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential nasm meson ninja-build pkg-config automake autoconf libtool zip \
+            ${{ matrix.platform == 'win-x64' && 'mingw-w64' || 'zlib1g-dev' }}
+
+      - name: Build
+        run: ./scripts/${{ matrix.script }} ${{ matrix.platform }}
+
+      - name: Sign (macOS)
+        if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY != ''
+        run: ./scripts/sign-macos.sh ${{ matrix.platform }}
+
+      - name: Package
+        id: package
+        run: echo "zip=$(./scripts/package.sh ${{ matrix.platform }})" >> "$GITHUB_OUTPUT"
+
+      - name: Notarize (macOS)
+        if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY != '' && env.APPLE_ID != ''
+        run: ./scripts/notarize-macos.sh "${{ steps.package.outputs.zip }}"
+
+      # Windows Authenticode signing goes here (e.g. Azure Trusted Signing)
+      # before packaging, once you have a certificate.
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.platform }}
+          path: dist/*.zip
+          retention-days: 7
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/ffmpeg-')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: sources
+          path: sources/
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: build-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Source bundle and manifest
+        run: |
+          ./scripts/make-source-bundle.sh
+          python3 scripts/make-manifest.py --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "LGPL builds of FFmpeg (ffmpeg + ffprobe) for macOS, Windows and Linux."
+            echo
+            echo "No GPL or nonfree components. The exact source for every binary is in the"
+            echo "\`-source.tar.gz\` asset. Checksums are in \`SHA256SUMS\` and \`manifest.json\`."
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md

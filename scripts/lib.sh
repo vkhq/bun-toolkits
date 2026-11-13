@@ -37,13 +37,14 @@ jobs_count() { getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4; }
 
 release_name() { echo "ffmpeg-lgpl-${FFMPEG_VERSION}-${BUILD_REVISION}"; }
 
-# One line per source: <name> <file> <url>
+# One line per source: <name> <file> <url>[,<mirror>...]
+# Mirrors must serve the byte-identical file (sources.lock checks it).
 sources_list() {
   cat <<EOF
 ffmpeg ffmpeg-${FFMPEG_VERSION}.tar.xz https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz
 dav1d dav1d-${DAV1D_VERSION}.tar.xz https://download.videolan.org/pub/videolan/dav1d/${DAV1D_VERSION}/dav1d-${DAV1D_VERSION}.tar.xz
 lame lame-${LAME_VERSION}.tar.gz https://downloads.sourceforge.net/project/lame/lame/${LAME_VERSION}/lame-${LAME_VERSION}.tar.gz
-zlib zlib-${ZLIB_VERSION}.tar.gz https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz
+zlib zlib-${ZLIB_VERSION}.tar.gz https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz,https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz
 EOF
 }
 

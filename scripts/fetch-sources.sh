@@ -29,14 +29,29 @@ fi
 mkdir -p "$SOURCES_DIR"
 touch "$LOCK_FILE"
 
+# Downloads to <out>.part and renames on success, so a half-finished file is
+# never mistaken for a complete one. Tries each comma-separated URL in turn,
+# resumes interrupted transfers, and gives up on a URL that stalls below
+# 10 KB/s for 60 s instead of crawling for many minutes.
 download() {
-  local url="$1" out="$2"
+  local urls="$1" out="$2" url
   if [ -f "$out" ]; then
     return
   fi
-  log "Downloading $url"
-  curl -fL --retry 3 --retry-delay 5 -o "$out.part" "$url"
-  mv "$out.part" "$out"
+  local IFS=','
+  for url in $urls; do
+    log "Downloading $url"
+    if curl -fL --retry 5 --retry-delay 5 --retry-all-errors \
+         --speed-limit 10240 --speed-time 60 \
+         -C - -o "$out.part" "$url"; then
+      mv "$out.part" "$out"
+      return
+    fi
+    warn "download from $url failed"
+    # A partial file from one mirror can't be resumed from another.
+    rm -f "$out.part"
+  done
+  die "could not download $(basename "$out") from any source"
 }
 
 verify_ffmpeg_signature() {
